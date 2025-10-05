@@ -1,0 +1,61 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environment directories
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Data -- avoid uploading large raw/processed/model data
+data/raw/
+data/processed/
+data/kardia/
+*.npy
+*.npz
+*.h5
+
+# Logs and results
+logs/
+*.log
+*.csv
+
+# Models and artifacts
+models/
+saved_models/
+artifacts/
+*.keras
+*.ckpt
+*.pkl
+
+# IDEs and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Misc
+*.tmp
+*~
+
+# Large data folders
+data/raw/
+data/processed/
+backend/data/raw/
+backend/data/processed/
+backend/saved_models/
+backend/logs/
+logs/
+models/
+*.npy
+*.npz
+*.h5
+
+# And other excludes as needed...
