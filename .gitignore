@@ -34,6 +34,9 @@ artifacts/
 *.keras
 *.ckpt
 *.pkl
+# Allow committed inference models
+!backend/src/saved_models/
+!backend/src/saved_models/**
 
 # IDEs and OS files
 .vscode/
@@ -50,6 +53,7 @@ data/raw/
 data/processed/
 backend/data/raw/
 backend/data/processed/
+# keep other backend artifacts ignored except src models
 backend/saved_models/
 backend/logs/
 logs/

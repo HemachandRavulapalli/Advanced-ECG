@@ -16,15 +16,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-# Try to import predict_ecg, but handle missing dependencies gracefully
-try:
-    from predict_ecg import predict_ecg
-    PREDICTION_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ Warning: Cannot import predict_ecg: {e}")
-    print("⚠️ Some dependencies may be missing. The API will start but /predict will return errors.")
-    PREDICTION_AVAILABLE = False
-    predict_ecg = None
+from predict_ecg import predict_ecg
 
 app = FastAPI(title="ECG Classification API", version="1.0.0")
 
@@ -65,12 +57,6 @@ async def predict(file: UploadFile = File(...)):
         - confidence: Confidence score (0-1)
         - probabilities: Confidence scores for all classes
     """
-    if not PREDICTION_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Prediction service unavailable. Missing dependencies. Please install all required packages from requirements.txt"
-        )
-    
     # Validate file type
     allowed_extensions = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
     file_extension = Path(file.filename).suffix.lower()
@@ -101,8 +87,6 @@ async def predict(file: UploadFile = File(...)):
         
     except Exception as e:
         print(f"❌ Error processing file: {e}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
     
     finally:
