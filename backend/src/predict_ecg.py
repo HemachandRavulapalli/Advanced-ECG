@@ -40,7 +40,11 @@ LABEL_MAP = {
 }
 
 BASE_DIR = os.path.dirname(__file__)
-MODEL_DIR = os.path.join(BASE_DIR, "saved_models")
+
+# Allow overriding model directory via environment variable so we can
+# mount a persistent volume in Railway (or other hosts) and point to it.
+# Default remains the local "saved_models" folder for local development.
+MODEL_DIR = os.environ.get("MODEL_DIR", os.path.join(BASE_DIR, "saved_models"))
 
 def get_latest_run():
     runs = sorted(
