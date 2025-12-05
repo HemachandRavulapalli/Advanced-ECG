@@ -20,7 +20,7 @@ from sklearn.model_selection import train_test_split
 from data_loader import load_all_datasets
 from ml_models import prepare_features, get_ml_models, train_ml_model
 from cnn_models import build_cnn_1d, build_cnn_2d
-from hybrid_model import AdvancedHybridModel, HybridEnsemble
+from hybrid_model import AdvancedHybridModel
 
 # ------------------------
 # CLI Arguments
@@ -255,11 +255,11 @@ print("🔢 Ensemble weights:", weights)
 print("🚀 Training Advanced Hybrid Model for 99%+ accuracy...")
 advanced_hybrid = AdvancedHybridModel(input_shape=(1000, 1), num_classes=len(classes))
 
-# Train the advanced ensemble with more epochs for better accuracy
+# Train the advanced ensemble
 advanced_hybrid.train_ensemble(
     X_train_dl, y_train, 
     X_test_dl, y_test,
-    epochs=50,  # Increased for better accuracy
+    epochs=30,  # Reduced for faster training
     batch_size=BATCH_SIZE
 )
 
@@ -269,9 +269,16 @@ advanced_acc, advanced_predictions = advanced_hybrid.evaluate(X_test_dl, y_test)
 # Save advanced models
 advanced_hybrid.save_models(os.path.join(RUN_DIR, "advanced_hybrid"))
 
+# Save classes for prediction
+import json
+classes_file = os.path.join(RUN_DIR, "classes.json")
+with open(classes_file, "w") as f:
+    json.dump(classes, f)
+print(f"💾 Saved classes to {classes_file}")
+
 print("🤝 Building Traditional Hybrid Ensemble...")
 hybrid = HybridEnsemble(ml_models=ml_models, dl_models=dl_models, classes=classes, weights=weights)
-acc = hybrid.evaluate(X_test_ml, X_test_dl, np.argmax(y_test, axis=1))
+acc, _ = hybrid.evaluate(X_test_ml, X_test_dl, np.argmax(y_test, axis=1))
 
 # ------------------------
 # Log Results

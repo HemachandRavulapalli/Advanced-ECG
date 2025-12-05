@@ -82,6 +82,29 @@ def load_models(run_dir):
     return ml_models, dl_models
 
 
+def validate_input_signal(signal):
+    """
+    Additional runtime validation to catch non-ECG inputs that slip past
+    the image/PDF extraction heuristics.
+    """
+    if signal is None or len(signal) == 0:
+        raise ValueError("❌ Empty signal extracted.")
+
+    # Require meaningful variation and dynamic range
+    if np.std(signal) < 0.05 or (np.max(signal) - np.min(signal)) < 0.5:
+        raise ValueError("❌ Signal lacks ECG-like variation (too flat).")
+
+    # Require that enough points are non-zero (reject mostly blank scans)
+    nonzero_ratio = np.count_nonzero(signal) / len(signal)
+    if nonzero_ratio < 0.05:
+        raise ValueError("❌ Signal appears blank/non-ECG (too many zero values).")
+
+    # Reject signals that are almost monotonic/line-like
+    mean_step = np.mean(np.abs(np.diff(signal)))
+    if mean_step < 1e-3:
+        raise ValueError("❌ Signal changes are too small to represent an ECG trace.")
+
+
 def predict_ecg(pdf_path):
     if extract_signal_from_file is None:
         raise ValueError("❌ PDF signal extraction not available. Missing dependencies.")
@@ -93,6 +116,9 @@ def predict_ecg(pdf_path):
     signal = extract_signal_from_file(pdf_path)
     if signal is None:
         raise ValueError("❌ Could not extract signal from PDF")
+
+    # Additional validation to reject non-ECG uploads early
+    validate_input_signal(signal)
 
     # preprocess for models
     X_ml = signal.reshape(1, -1)
@@ -122,34 +148,70 @@ def predict_ecg(pdf_path):
     if not dl_models:
         print("⚠️ Warning: No DL models loaded (TensorFlow not available). Using ML models only.")
 
-    # force 5-class labels for consistent predictions
+    # Load class list (always use 5 classes)
     classes = ["Normal Sinus Rhythm", "Atrial Fibrillation", "Bradycardia", "Tachycardia", "Ventricular Arrhythmias"]
-    num_classes = len(classes)
-
-
-    # load class list (fallback to 5)
+    
+    # Load saved classes if available
     class_file = os.path.join(best_run, "classes.json")
     if os.path.exists(class_file):
-        with open(class_file, "r") as f:
-            classes = json.load(f)
-    else:
-        classes = ["Class_0", "Class_1", "Class_2", "Class_3", "Class_4"]
-
+        try:
+            with open(class_file, "r") as f:
+                saved_classes = json.load(f)
+            if len(saved_classes) == 5:
+                classes = saved_classes
+                print(f"📋 Using saved classes: {classes}")
+        except Exception as e:
+            print(f"⚠️ Could not load classes.json: {e}, using default 5 classes")
+    
+    # Ensure signal is exactly 1000 samples (required by models)
+    if X_dl.shape[1] != 1000:
+        if X_dl.shape[1] < 1000:
+            # Pad if too short
+            pad_length = 1000 - X_dl.shape[1]
+            X_dl = np.pad(X_dl, ((0, 0), (0, pad_length), (0, 0)), mode='constant')
+            X_ml = X_dl.reshape(1, -1)
+            print(f"⚠️ Signal was {X_dl.shape[1]} samples, padded to 1000")
+        else:
+            # Truncate if too long
+            X_dl = X_dl[:, :1000, :]
+            X_ml = X_dl.reshape(1, -1)
+            print(f"⚠️ Signal was {X_dl.shape[1]} samples, truncated to 1000")
+    
     # hybrid ensemble
-    hybrid = HybridEnsemble(ml_models=ml_models, dl_models=dl_models, classes=classes)
+    hybrid = HybridEnsemble(ml_models=ml_models, dl_models=dl_models, classes=classes, weights={})
 
     print("🧠 Predicting...")
-    probs = hybrid.predict_proba(X_ml, X_dl)
-    probs = probs[:, :len(classes)]  # truncate if model output > number of classes
-    pred_idx = int(np.argmax(probs))
-    pred_class = classes[pred_idx]
-    pred_conf = float(np.max(probs))
+    try:
+        probs = hybrid.predict_proba(X_ml, X_dl)
+        
+        # Ensure probabilities are for 5 classes
+        if probs.shape[1] > 5:
+            probs = probs[:, :5]
+        elif probs.shape[1] < 5:
+            # Pad with zeros if fewer classes
+            pad_probs = np.zeros((probs.shape[0], 5))
+            pad_probs[:, :probs.shape[1]] = probs
+            probs = pad_probs
+        
+        # Normalize probabilities
+        probs = probs / (np.sum(probs, axis=1, keepdims=True) + 1e-8)
+        
+        pred_idx = int(np.argmax(probs))
+        pred_class = classes[pred_idx] if pred_idx < len(classes) else classes[0]
+        pred_conf = float(np.max(probs))
+        
+        # Check if confidence is too low (might indicate invalid input)
+        if pred_conf < 0.3:
+            print(f"⚠️ Warning: Low confidence ({pred_conf:.4f}). Input may not be a valid ECG signal.")
+        
+    except Exception as e:
+        raise ValueError(f"❌ Prediction failed: {str(e)}. Models may not be compatible.")
 
     # use human-readable labels
-    readable_pred = LABEL_MAP.get(pred_class, pred_class)
+    readable_pred = pred_class  # Already using readable labels
     readable_probs = {
-        LABEL_MAP.get(cls, cls): round(float(p), 4)
-        for cls, p in zip(classes, probs[0].tolist())
+        classes[i]: round(float(p), 4)
+        for i, p in enumerate(probs[0].tolist())
     }
 
     results = {

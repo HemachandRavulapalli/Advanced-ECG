@@ -1,22 +1,10 @@
 # hybrid_model.py
 import numpy as np
+import tensorflow as tf
+from tensorflow.keras import layers, models, regularizers, initializers
 from sklearn.ensemble import VotingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 import joblib
-
-# Try to import tensorflow, but handle if missing
-try:
-    import tensorflow as tf
-    from tensorflow.keras import layers, models, regularizers, initializers
-    TENSORFLOW_AVAILABLE = True
-except ImportError:
-    TENSORFLOW_AVAILABLE = False
-    tf = None
-    # Create dummy objects for type hints
-    layers = None
-    models = None
-    regularizers = None
-    initializers = None
 
 class AdvancedHybridModel:
     """
@@ -209,7 +197,7 @@ class AdvancedHybridModel:
     
     def _build_attention_cnn_2d(self):
         """2D CNN with attention mechanism"""
-        inputs = layers.Input(shape=(100, 10, 1))
+        inputs = layers.Input(shape=self.input_shape)
         
         # Feature extraction
         x = layers.Conv2D(64, (5, 5), padding='same', activation='relu')(inputs)
@@ -247,7 +235,7 @@ class AdvancedHybridModel:
     
     def _build_multiscale_cnn_2d(self):
         """Multi-scale 2D CNN"""
-        inputs = layers.Input(shape=(100, 10, 1))
+        inputs = layers.Input(shape=self.input_shape)
         
         # Multi-scale feature extraction
         branches = []
@@ -345,23 +333,77 @@ class AdvancedHybridModel:
             return ensemble_pred
         else:
             return None
+
+
+class HybridEnsemble:
+    """
+    Traditional hybrid ensemble combining ML and DL models
+    """
+    def __init__(self, ml_models, dl_models, classes, weights=None):
+        self.ml_models = ml_models or {}
+        self.dl_models = dl_models or {}
+        self.classes = classes
+        self.weights = weights or {}
     
-    def evaluate(self, X_test, y_test):
-        """Evaluate the ensemble model"""
-        predictions = self.predict_ensemble(X_test)
-        if predictions is not None:
-            y_pred = np.argmax(predictions, axis=1)
-            y_true = np.argmax(y_test, axis=1)
-            
-            accuracy = accuracy_score(y_true, y_pred)
-            print(f"🎯 Ensemble Accuracy: {accuracy:.4f}")
-            print("\nClassification Report:")
-            print(classification_report(y_true, y_pred))
-            
-            return accuracy, predictions
-        else:
-            print("❌ No predictions available")
-            return 0, None
+    def predict_proba(self, X_ml, X_dl):
+        """Get ensemble predictions from ML and DL models"""
+        predictions = []
+        weights_list = []
+        
+        # ML model predictions
+        for name, model in self.ml_models.items():
+            try:
+                proba = model.predict_proba(X_ml)
+                predictions.append(proba)
+                weights_list.append(self.weights.get(name, 1.0))
+            except Exception as e:
+                print(f"⚠️ Error predicting with {name}: {e}")
+        
+        # DL model predictions
+        for name, model in self.dl_models.items():
+            try:
+                proba = model.predict(X_dl, verbose=0)
+                predictions.append(proba)
+                weights_list.append(self.weights.get(name, 1.0))
+            except Exception as e:
+                print(f"⚠️ Error predicting with {name}: {e}")
+        
+        if not predictions:
+            raise ValueError("❌ No models available for prediction")
+        
+        # Weighted average
+        total_weight = sum(weights_list)
+        if total_weight == 0:
+            weights_list = [1.0] * len(predictions)
+            total_weight = len(predictions)
+        
+        ensemble_proba = np.zeros_like(predictions[0])
+        for pred, weight in zip(predictions, weights_list):
+            # Ensure same number of classes
+            if pred.shape[1] != ensemble_proba.shape[1]:
+                # Truncate or pad
+                min_classes = min(pred.shape[1], ensemble_proba.shape[1])
+                ensemble_proba[:, :min_classes] += (weight / total_weight) * pred[:, :min_classes]
+            else:
+                ensemble_proba += (weight / total_weight) * pred
+        
+        return ensemble_proba
+    
+    def evaluate(self, X_ml, X_dl, y_true):
+        """Evaluate the ensemble model on aligned ML/DL inputs"""
+        # Allow one-hot labels
+        if y_true.ndim > 1:
+            y_true = np.argmax(y_true, axis=1)
+
+        probs = self.predict_proba(X_ml, X_dl)
+        y_pred = np.argmax(probs, axis=1)
+
+        accuracy = accuracy_score(y_true, y_pred)
+        print(f"🎯 Ensemble Accuracy: {accuracy:.4f}")
+        print("\nClassification Report:")
+        print(classification_report(y_true, y_pred))
+
+        return accuracy, probs
     
     def save_models(self, save_dir):
         """Save all trained models"""
@@ -384,72 +426,3 @@ class AdvancedHybridModel:
             model = tf.keras.models.load_model(model_file)
             self.models[name] = model
             print(f"📂 Loaded {name} from {model_file}")
-
-
-# ------------------------
-# Hybrid Ensemble Class
-# ------------------------
-class HybridEnsemble:
-    """Combine ML and DL models for improved predictions"""
-    
-    def __init__(self, ml_models=None, dl_models=None, classes=None, weights=None):
-        self.ml_models = ml_models or {}
-        self.dl_models = dl_models or {}
-        self.classes = classes or []
-        self.weights = weights or {}
-    
-    def predict_proba(self, X_ml, X_dl):
-        """Get probability predictions from all models"""
-        all_probs = []
-        
-        # ML model predictions
-        for name, model in self.ml_models.items():
-            try:
-                prob = model.predict_proba(X_ml)
-                all_probs.append(prob)
-            except Exception as e:
-                print(f"⚠️ {name} prediction failed: {e}")
-        
-        # DL model predictions
-        for name, model in self.dl_models.items():
-            try:
-                if name == "CNN2D" or "CNN2D" in name:
-                    X_input = X_dl.reshape(-1, 100, 10, 1)
-                else:
-                    X_input = X_dl
-                prob = model.predict(X_input, verbose=0)
-                all_probs.append(prob)
-            except Exception as e:
-                print(f"⚠️ {name} prediction failed: {e}")
-        
-        if not all_probs:
-            raise ValueError("No valid predictions available")
-        
-        # Weighted averaging
-        if self.weights:
-            weights_list = [self.weights.get(name, 1.0) for name in list(self.ml_models.keys()) + list(self.dl_models.keys())]
-            weights_array = np.array(weights_list[:len(all_probs)])
-            weights_array = weights_array / weights_array.sum()
-        else:
-            weights_array = np.ones(len(all_probs)) / len(all_probs)
-        
-        # Ensemble prediction
-        ensemble_prob = np.zeros_like(all_probs[0])
-        for prob, weight in zip(all_probs, weights_array):
-            ensemble_prob += weight * prob
-        
-        return ensemble_prob
-    
-    def evaluate(self, X_ml, X_dl, y_true):
-        """Evaluate ensemble performance"""
-        y_proba = self.predict_proba(X_ml, X_dl)
-        y_pred = np.argmax(y_proba, axis=1)
-        
-        accuracy = accuracy_score(y_true, y_pred)
-        print(f"🎯 Hybrid Ensemble Accuracy: {accuracy:.4f}")
-        
-        if self.classes:
-            print("\nClassification Report:")
-            print(classification_report(y_true, y_pred, target_names=self.classes))
-        
-        return accuracy

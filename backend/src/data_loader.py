@@ -511,11 +511,15 @@ def load_all_datasets(limit=None, one_hot=True, window_size=1000):
     X_test = X_ptb_test
     y_test = y_ptb_test
 
-    # Clean labels to target classes only
-    y_train = np.array([lbl for lbl in y_train if lbl in TARGET_CLASSES])
-    y_test = np.array([lbl for lbl in y_test if lbl in TARGET_CLASSES])
-    X_train = X_train[:len(y_train)]
-    X_test = X_test[:len(y_test)]
+    # Clean labels to target classes only while keeping X/Y aligned
+    train_mask = np.isin(y_train, TARGET_CLASSES)
+    test_mask = np.isin(y_test, TARGET_CLASSES)
+
+    X_train = X_train[train_mask]
+    y_train = y_train[train_mask]
+
+    X_test = X_test[test_mask]
+    y_test = y_test[test_mask]
 
     # Get unique classes actually present in the data
     unique_classes = sorted(list(set(y_train) | set(y_test)))

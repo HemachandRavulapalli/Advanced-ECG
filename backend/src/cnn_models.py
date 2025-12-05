@@ -130,18 +130,15 @@ def build_cnn_2d(input_shape, num_classes, dropout_rate=0.2):
     
     # Residual blocks with attention
     for i, filters in enumerate([256, 512, 1024]):
-        # Get current number of channels
-        current_channels = x.shape[-1]
-        
         # Spatial attention
         spatial_attention = layers.Conv2D(1, (1, 1), activation='sigmoid')(x)
         x = layers.Multiply()([x, spatial_attention])
         
         # Channel attention
         channel_attention = layers.GlobalAveragePooling2D()(x)
-        channel_attention = layers.Dense(max(current_channels//4, 16), activation='relu')(channel_attention)
-        channel_attention = layers.Dense(current_channels, activation='sigmoid')(channel_attention)
-        channel_attention = layers.Reshape((1, 1, current_channels))(channel_attention)
+        channel_attention = layers.Dense(filters//4, activation='relu')(channel_attention)
+        channel_attention = layers.Dense(filters, activation='sigmoid')(channel_attention)
+        channel_attention = layers.Reshape((1, 1, filters))(channel_attention)
         x = layers.Multiply()([x, channel_attention])
         
         # Residual block
