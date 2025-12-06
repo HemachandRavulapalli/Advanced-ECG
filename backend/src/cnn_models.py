@@ -130,11 +130,15 @@ def build_cnn_2d(input_shape, num_classes, dropout_rate=0.2):
     
     # Residual blocks with attention
     for i, filters in enumerate([256, 512, 1024]):
+        # Project to target channel depth first so attention shapes match
+        x = layers.Conv2D(filters, (3, 3), padding='same', activation='relu')(x)
+        x = layers.BatchNormalization()(x)
+
         # Spatial attention
         spatial_attention = layers.Conv2D(1, (1, 1), activation='sigmoid')(x)
         x = layers.Multiply()([x, spatial_attention])
         
-        # Channel attention
+        # Channel attention (matches current filters)
         channel_attention = layers.GlobalAveragePooling2D()(x)
         channel_attention = layers.Dense(filters//4, activation='relu')(channel_attention)
         channel_attention = layers.Dense(filters, activation='sigmoid')(channel_attention)
@@ -142,7 +146,7 @@ def build_cnn_2d(input_shape, num_classes, dropout_rate=0.2):
         x = layers.Multiply()([x, channel_attention])
         
         # Residual block
-        residual = layers.Conv2D(filters, (1, 1), padding='same')(x)
+        residual = x  # same shape (batch, h, w, filters)
         
         x = layers.Conv2D(filters, (3, 3), padding='same', activation='relu')(x)
         x = layers.BatchNormalization()(x)

@@ -13,6 +13,7 @@ import tensorflow as tf
 import pandas as pd
 import shutil
 from datetime import datetime
+from collections import Counter
 import argparse
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.model_selection import train_test_split
@@ -20,7 +21,7 @@ from sklearn.model_selection import train_test_split
 from data_loader import load_all_datasets
 from ml_models import prepare_features, get_ml_models, train_ml_model
 from cnn_models import build_cnn_1d, build_cnn_2d
-from hybrid_model import AdvancedHybridModel
+from hybrid_model import AdvancedHybridModel, HybridEnsemble
 
 # ------------------------
 # CLI Arguments
@@ -28,7 +29,7 @@ from hybrid_model import AdvancedHybridModel
 parser = argparse.ArgumentParser(description="Train ECG hybrid ML + DL models")
 parser.add_argument("--resume", action="store_true", help="Resume from latest run")
 parser.add_argument("--limit", type=int, default=3000, help="Limit number of samples to load per dataset")
-parser.add_argument("--epochs", type=int, default=5, help="Epochs for DL training")
+parser.add_argument("--epochs", type=int, default=50, help="Epochs for DL training (default: 50 for better accuracy)")
 parser.add_argument("--batch_size", type=int, default=64, help="Batch size for DL training")
 parser.add_argument("--max_per_class", type=int, default=5000, help="Max samples per class if balancing")
 parser.add_argument("--normalize", action="store_true", help="Apply global normalization (recommended)")
@@ -123,8 +124,27 @@ if y_train.ndim > 1 and y_train.shape[1] > 1:
 else:
     y_train_int, y_test_int = y_train, y_test
 
+# Print class distribution for diagnosis
+print("\n📊 Class Distribution:")
+train_dist = Counter(y_train_int)
+test_dist = Counter(y_test_int)
+print(f"Train: {dict(train_dist)}")
+print(f"Test: {dict(test_dist)}")
+
 # ------------------------
-# Normalization
+# Create Train/Validation Split (for model selection)
+# ------------------------
+print("\n🔀 Creating train/validation split from training data...")
+X_train_split, X_val_split, y_train_split, y_val_split = train_test_split(
+    X_train, y_train, test_size=0.2, random_state=42, stratify=y_train_int
+)
+y_train_split_int = np.argmax(y_train_split, axis=1) if y_train_split.ndim > 1 else y_train_split
+y_val_split_int = np.argmax(y_val_split, axis=1) if y_val_split.ndim > 1 else y_val_split
+
+print(f"✅ Split: Train={X_train_split.shape}, Val={X_val_split.shape}, Test={X_test.shape}")
+
+# ------------------------
+# Normalization (use training split for statistics)
 # ------------------------
 if APPLY_SAMPLE_NORM and APPLY_GLOBAL_NORM:
     print("⚠️ Both sample and global normalization chosen, using global only.")
@@ -132,30 +152,34 @@ if APPLY_SAMPLE_NORM and APPLY_GLOBAL_NORM:
 
 if APPLY_SAMPLE_NORM:
     print("🔬 Applying per-sample z-score normalization")
-    X_train = (X_train - np.mean(X_train, axis=1, keepdims=True)) / (np.std(X_train, axis=1, keepdims=True) + 1e-8)
+    X_train_split = (X_train_split - np.mean(X_train_split, axis=1, keepdims=True)) / (np.std(X_train_split, axis=1, keepdims=True) + 1e-8)
+    X_val_split = (X_val_split - np.mean(X_val_split, axis=1, keepdims=True)) / (np.std(X_val_split, axis=1, keepdims=True) + 1e-8)
     X_test = (X_test - np.mean(X_test, axis=1, keepdims=True)) / (np.std(X_test, axis=1, keepdims=True) + 1e-8)
 
 if APPLY_GLOBAL_NORM:
-    print("🔬 Applying global normalization")
-    mean, std = np.mean(X_train), np.std(X_train) + 1e-8
-    X_train = (X_train - mean) / std
+    print("🔬 Applying global normalization (using training split statistics)")
+    mean, std = np.mean(X_train_split), np.std(X_train_split) + 1e-8
+    X_train_split = (X_train_split - mean) / std
+    X_val_split = (X_val_split - mean) / std
     X_test = (X_test - mean) / std
 
 # ------------------------
 # Prepare Data for Models
 # ------------------------
-X_train_ml = prepare_features(X_train)
+X_train_ml = prepare_features(X_train_split)
+X_val_ml = prepare_features(X_val_split)
 X_test_ml = prepare_features(X_test)
-X_train_dl = X_train[..., np.newaxis]
+X_train_dl = X_train_split[..., np.newaxis]
+X_val_dl = X_val_split[..., np.newaxis]
 X_test_dl = X_test[..., np.newaxis]
 
 # ------------------------
-# Class Weights
+# Class Weights (based on training split)
 # ------------------------
 class_weights = None
-if len(np.unique(y_train_int)) > 1:
-    weights = compute_class_weight("balanced", classes=np.unique(y_train_int), y=y_train_int)
-    class_weights = {int(c): float(w) for c, w in zip(np.unique(y_train_int), weights)}
+if len(np.unique(y_train_split_int)) > 1:
+    weights = compute_class_weight("balanced", classes=np.unique(y_train_split_int), y=y_train_split_int)
+    class_weights = {int(c): float(w) for c, w in zip(np.unique(y_train_split_int), weights)}
     print("⚖️ Class weights:", class_weights)
 
 # ------------------------
@@ -168,17 +192,24 @@ ml_val_scores = {}
 for name, model in ml_defs.items():
     path = os.path.join(RUN_DIR, f"{name}.joblib")
     if args.resume and os.path.exists(path):
-        print(f"📂 Resuming {name}")
+        print(f"📂 Resuming {name} - loading and re-evaluating...")
         ml_models[name] = joblib.load(path)
+        # Re-evaluate on validation set even when resuming
+        if name == "SVM":
+            acc = ml_models[name].score(X_val_ml, y_val_split_int)
+        else:
+            acc = ml_models[name].score(X_val_ml, y_val_split_int)
+        ml_val_scores[name] = acc
+        print(f"✅ {name} validation accuracy: {acc:.4f}")
         continue
     print(f"🚀 Training {name}...")
     start = time.time()
     if name == "SVM":
         idx = np.random.choice(len(X_train_ml), min(SVM_LIMIT, len(X_train_ml)), replace=False)
-        X_sub, y_sub = X_train_ml[idx], y_train_int[idx]
-        model, acc = train_ml_model(name, model, X_sub, y_sub, X_test_ml, y_test_int)
+        X_sub, y_sub = X_train_ml[idx], y_train_split_int[idx]
+        model, acc = train_ml_model(name, model, X_sub, y_sub, X_val_ml, y_val_split_int)
     else:
-        model, acc = train_ml_model(name, model, X_train_ml, y_train_int, X_test_ml, y_test_int)
+        model, acc = train_ml_model(name, model, X_train_ml, y_train_split_int, X_val_ml, y_val_split_int)
     joblib.dump(model, path)
     ml_models[name] = model
     ml_val_scores[name] = acc
@@ -194,23 +225,30 @@ from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCh
 
 def make_callbacks(name):
     ckpt = os.path.join(RUN_DIR, f"{name}_best.keras")
+    # Adjust patience based on epochs - early stopping should trigger
+    early_stop_patience = max(5, min(EPOCHS // 3, 15))
+    lr_patience = max(3, early_stop_patience // 2)
     return [
         ModelCheckpoint(ckpt, monitor="val_accuracy", mode="max", save_best_only=True, verbose=0),
-        ReduceLROnPlateau(monitor="val_loss", factor=0.3, patience=5, min_lr=1e-8, verbose=1),
-        EarlyStopping(monitor="val_accuracy", patience=15, restore_best_weights=True, verbose=1),
+        ReduceLROnPlateau(monitor="val_loss", factor=0.3, patience=lr_patience, min_lr=1e-8, verbose=1),
+        EarlyStopping(monitor="val_accuracy", patience=early_stop_patience, restore_best_weights=True, verbose=1),
     ]
 
 # CNN1D
 cnn1d_path = os.path.join(RUN_DIR, "cnn1d.keras")
 if args.resume and os.path.exists(cnn1d_path):
-    print("📂 Resuming CNN1D")
+    print("📂 Resuming CNN1D - loading and re-evaluating...")
     cnn1d = tf.keras.models.load_model(cnn1d_path)
+    # Re-evaluate on validation set
+    val_loss, val_acc = cnn1d.evaluate(X_val_dl, y_val_split, verbose=0)
+    dl_val_scores["CNN1D"] = val_acc
+    print(f"✅ CNN1D validation accuracy: {val_acc:.4f}")
 else:
     print("🚀 Training CNN1D...")
     cnn1d = build_cnn_1d((1000, 1), num_classes=len(classes))
     cnn1d.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4, beta_1=0.9, beta_2=0.999, epsilon=1e-7),
                   loss="categorical_crossentropy", metrics=["accuracy"])
-    history = cnn1d.fit(X_train_dl, y_train, validation_data=(X_test_dl, y_test),
+    history = cnn1d.fit(X_train_dl, y_train_split, validation_data=(X_val_dl, y_val_split),
                         epochs=EPOCHS, batch_size=BATCH_SIZE, verbose=1,
                         callbacks=make_callbacks("cnn1d"),
                         class_weight=class_weights)
@@ -220,17 +258,23 @@ dl_models["CNN1D"] = cnn1d
 
 # CNN2D
 cnn2d_path = os.path.join(RUN_DIR, "cnn2d.keras")
+X_train_2d = X_train_dl.reshape(-1, 100, 10, 1)
+X_val_2d = X_val_dl.reshape(-1, 100, 10, 1)
+X_test_2d = X_test_dl.reshape(-1, 100, 10, 1)
+
 if args.resume and os.path.exists(cnn2d_path):
-    print("📂 Resuming CNN2D")
+    print("📂 Resuming CNN2D - loading and re-evaluating...")
     cnn2d = tf.keras.models.load_model(cnn2d_path)
+    # Re-evaluate on validation set
+    val_loss, val_acc = cnn2d.evaluate(X_val_2d, y_val_split, verbose=0)
+    dl_val_scores["CNN2D"] = val_acc
+    print(f"✅ CNN2D validation accuracy: {val_acc:.4f}")
 else:
     print("🚀 Training CNN2D...")
-    X_train_2d = X_train_dl.reshape(-1, 100, 10, 1)
-    X_test_2d = X_test_dl.reshape(-1, 100, 10, 1)
     cnn2d = build_cnn_2d((100, 10, 1), num_classes=len(classes))
     cnn2d.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=5e-4, beta_1=0.9, beta_2=0.999, epsilon=1e-7),
                   loss="categorical_crossentropy", metrics=["accuracy"])
-    history2 = cnn2d.fit(X_train_2d, y_train, validation_data=(X_test_2d, y_test),
+    history2 = cnn2d.fit(X_train_2d, y_train_split, validation_data=(X_val_2d, y_val_split),
                          epochs=EPOCHS, batch_size=BATCH_SIZE, verbose=1,
                          callbacks=make_callbacks("cnn2d"),
                          class_weight=class_weights)
@@ -255,16 +299,16 @@ print("🔢 Ensemble weights:", weights)
 print("🚀 Training Advanced Hybrid Model for 99%+ accuracy...")
 advanced_hybrid = AdvancedHybridModel(input_shape=(1000, 1), num_classes=len(classes))
 
-# Train the advanced ensemble
+# Train the advanced ensemble (use validation split, not test)
 advanced_hybrid.train_ensemble(
-    X_train_dl, y_train, 
-    X_test_dl, y_test,
-    epochs=30,  # Reduced for faster training
+    X_train_dl, y_train_split, 
+    X_val_dl, y_val_split,
+    epochs=min(30, EPOCHS * 2),  # Scale with EPOCHS but cap at 30
     batch_size=BATCH_SIZE
 )
 
-# Evaluate advanced hybrid model
-advanced_acc, advanced_predictions = advanced_hybrid.evaluate(X_test_dl, y_test)
+# Evaluate advanced hybrid model on validation set
+advanced_acc, advanced_predictions = advanced_hybrid.evaluate(X_val_dl, y_val_split)
 
 # Save advanced models
 advanced_hybrid.save_models(os.path.join(RUN_DIR, "advanced_hybrid"))
@@ -276,9 +320,19 @@ with open(classes_file, "w") as f:
     json.dump(classes, f)
 print(f"💾 Saved classes to {classes_file}")
 
-print("🤝 Building Traditional Hybrid Ensemble...")
+print("\n🤝 Building Traditional Hybrid Ensemble...")
+print(f"📊 Validation scores for weighting: {ml_val_scores}")
+print(f"📊 DL validation scores: {dl_val_scores}")
+
 hybrid = HybridEnsemble(ml_models=ml_models, dl_models=dl_models, classes=classes, weights=weights)
-acc, _ = hybrid.evaluate(X_test_ml, X_test_dl, np.argmax(y_test, axis=1))
+
+# Evaluate on validation set (for model selection) and test set (final evaluation)
+print("\n📈 Evaluating on validation set...")
+val_acc, _ = hybrid.evaluate(X_val_ml, X_val_dl, np.argmax(y_val_split, axis=1))
+
+print("\n📈 Final evaluation on test set...")
+test_acc, _ = hybrid.evaluate(X_test_ml, X_test_dl, np.argmax(y_test, axis=1))
+acc = test_acc  # Use test accuracy for logging
 
 # ------------------------
 # Log Results

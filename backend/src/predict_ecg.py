@@ -90,16 +90,13 @@ def validate_input_signal(signal):
     if signal is None or len(signal) == 0:
         raise ValueError("❌ Empty signal extracted.")
 
-    # Require meaningful variation and dynamic range
     if np.std(signal) < 0.05 or (np.max(signal) - np.min(signal)) < 0.5:
         raise ValueError("❌ Signal lacks ECG-like variation (too flat).")
 
-    # Require that enough points are non-zero (reject mostly blank scans)
     nonzero_ratio = np.count_nonzero(signal) / len(signal)
     if nonzero_ratio < 0.05:
         raise ValueError("❌ Signal appears blank/non-ECG (too many zero values).")
 
-    # Reject signals that are almost monotonic/line-like
     mean_step = np.mean(np.abs(np.diff(signal)))
     if mean_step < 1e-3:
         raise ValueError("❌ Signal changes are too small to represent an ECG trace.")
@@ -120,13 +117,26 @@ def predict_ecg(pdf_path):
     # Additional validation to reject non-ECG uploads early
     validate_input_signal(signal)
 
+    # Preserve original length for user-facing logs
+    orig_len = len(signal)
+    target_len = 1000
+
+    # Adjust length before normalization
+    if orig_len != target_len:
+        if orig_len < target_len:
+            pad_length = target_len - orig_len
+            signal = np.pad(signal, (0, pad_length), mode='constant')
+            print(f"⚠️ Signal was {orig_len} samples, padded to {target_len}")
+        else:
+            signal = signal[:target_len]
+            print(f"⚠️ Signal was {orig_len} samples, truncated to {target_len}")
+
+    # normalization (z-score) after length adjustment
+    signal = (signal - np.mean(signal)) / (np.std(signal) + 1e-8)
+
     # preprocess for models
     X_ml = signal.reshape(1, -1)
     X_dl = signal.reshape(1, -1, 1)
-
-    # normalization (z-score)
-    X_ml = (X_ml - np.mean(X_ml)) / (np.std(X_ml) + 1e-8)
-    X_dl = (X_dl - np.mean(X_dl)) / (np.std(X_dl) + 1e-8)
 
     # load models
     best_run = get_latest_run()
@@ -163,19 +173,7 @@ def predict_ecg(pdf_path):
         except Exception as e:
             print(f"⚠️ Could not load classes.json: {e}, using default 5 classes")
     
-    # Ensure signal is exactly 1000 samples (required by models)
-    if X_dl.shape[1] != 1000:
-        if X_dl.shape[1] < 1000:
-            # Pad if too short
-            pad_length = 1000 - X_dl.shape[1]
-            X_dl = np.pad(X_dl, ((0, 0), (0, pad_length), (0, 0)), mode='constant')
-            X_ml = X_dl.reshape(1, -1)
-            print(f"⚠️ Signal was {X_dl.shape[1]} samples, padded to 1000")
-        else:
-            # Truncate if too long
-            X_dl = X_dl[:, :1000, :]
-            X_ml = X_dl.reshape(1, -1)
-            print(f"⚠️ Signal was {X_dl.shape[1]} samples, truncated to 1000")
+    # Length already enforced; no further padding/truncation here
     
     # hybrid ensemble
     hybrid = HybridEnsemble(ml_models=ml_models, dl_models=dl_models, classes=classes, weights={})

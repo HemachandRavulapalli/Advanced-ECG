@@ -1,10 +1,21 @@
 # hybrid_model.py
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras import layers, models, regularizers, initializers
-from sklearn.ensemble import VotingClassifier
-from sklearn.metrics import accuracy_score, classification_report
 import joblib
+from sklearn.metrics import accuracy_score, classification_report
+
+# Try to import tensorflow, but handle if missing
+try:
+    import tensorflow as tf
+    from tensorflow.keras import layers, models, regularizers, initializers
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+    tf = None
+    layers = None
+    models = None
+    regularizers = None
+    initializers = None
+    print("⚠️ Warning: TensorFlow not available. AdvancedHybridModel will not work, but HybridEnsemble can use ML models only.")
 
 class AdvancedHybridModel:
     """
@@ -344,6 +355,8 @@ class HybridEnsemble:
         self.dl_models = dl_models or {}
         self.classes = classes
         self.weights = weights or {}
+        # unified view for convenience
+        self.models = {**self.ml_models, **self.dl_models}
     
     def predict_proba(self, X_ml, X_dl):
         """Get ensemble predictions from ML and DL models"""
@@ -359,14 +372,17 @@ class HybridEnsemble:
             except Exception as e:
                 print(f"⚠️ Error predicting with {name}: {e}")
         
-        # DL model predictions
-        for name, model in self.dl_models.items():
-            try:
-                proba = model.predict(X_dl, verbose=0)
-                predictions.append(proba)
-                weights_list.append(self.weights.get(name, 1.0))
-            except Exception as e:
-                print(f"⚠️ Error predicting with {name}: {e}")
+        # DL model predictions (only if TensorFlow is available)
+        if TENSORFLOW_AVAILABLE:
+            for name, model in self.dl_models.items():
+                try:
+                    proba = model.predict(X_dl, verbose=0)
+                    predictions.append(proba)
+                    weights_list.append(self.weights.get(name, 1.0))
+                except Exception as e:
+                    print(f"⚠️ Error predicting with {name}: {e}")
+        elif self.dl_models:
+            print("⚠️ TensorFlow not available, skipping DL model predictions")
         
         if not predictions:
             raise ValueError("❌ No models available for prediction")
@@ -391,18 +407,17 @@ class HybridEnsemble:
     
     def evaluate(self, X_ml, X_dl, y_true):
         """Evaluate the ensemble model on aligned ML/DL inputs"""
-        # Allow one-hot labels
         if y_true.ndim > 1:
             y_true = np.argmax(y_true, axis=1)
 
         probs = self.predict_proba(X_ml, X_dl)
         y_pred = np.argmax(probs, axis=1)
-
-        accuracy = accuracy_score(y_true, y_pred)
-        print(f"🎯 Ensemble Accuracy: {accuracy:.4f}")
-        print("\nClassification Report:")
-        print(classification_report(y_true, y_pred))
-
+            
+            accuracy = accuracy_score(y_true, y_pred)
+            print(f"🎯 Ensemble Accuracy: {accuracy:.4f}")
+            print("\nClassification Report:")
+            print(classification_report(y_true, y_pred))
+            
         return accuracy, probs
     
     def save_models(self, save_dir):
@@ -410,19 +425,56 @@ class HybridEnsemble:
         import os
         os.makedirs(save_dir, exist_ok=True)
         
-        for name, model in self.models.items():
-            model_path = os.path.join(save_dir, f"{name}.keras")
-            model.save(model_path)
-            print(f"💾 Saved {name} to {model_path}")
+        # Save DL models (only if TensorFlow is available)
+        if TENSORFLOW_AVAILABLE:
+            for name, model in self.dl_models.items():
+                try:
+                    model_path = os.path.join(save_dir, f"{name}.keras")
+                    model.save(model_path)
+                    print(f"💾 Saved DL model {name} to {model_path}")
+                except Exception as e:
+                    print(f"⚠️ Failed to save DL model {name}: {e}")
+        else:
+            print("⚠️ TensorFlow not available, skipping DL model saving")
+
+        # Save ML models
+        for name, model in self.ml_models.items():
+            model_path = os.path.join(save_dir, f"{name}.joblib")
+            try:
+                joblib.dump(model, model_path)
+                print(f"💾 Saved ML model {name} to {model_path}")
+            except Exception as e:
+                print(f"⚠️ Failed to save {name}: {e}")
     
     def load_models(self, save_dir):
         """Load pre-trained models"""
         import os
         import glob
         
-        model_files = glob.glob(os.path.join(save_dir, "*.keras"))
-        for model_file in model_files:
-            name = os.path.basename(model_file).replace('.keras', '')
-            model = tf.keras.models.load_model(model_file)
-            self.models[name] = model
-            print(f"📂 Loaded {name} from {model_file}")
+        # Load DL models (only if TensorFlow is available)
+        if TENSORFLOW_AVAILABLE:
+            model_files = glob.glob(os.path.join(save_dir, "*.keras"))
+            for model_file in model_files:
+                name = os.path.basename(model_file).replace('.keras', '')
+                try:
+                    model = tf.keras.models.load_model(model_file)
+                    self.dl_models[name] = model
+                    print(f"📂 Loaded DL model {name} from {model_file}")
+                except Exception as e:
+                    print(f"⚠️ Failed to load DL model {model_file}: {e}")
+        else:
+            print("⚠️ TensorFlow not available, skipping DL model loading")
+
+        # Load ML models
+        joblib_files = glob.glob(os.path.join(save_dir, "*.joblib"))
+        for joblib_file in joblib_files:
+            name = os.path.basename(joblib_file).replace('.joblib', '')
+            try:
+                model = joblib.load(joblib_file)
+                self.ml_models[name] = model
+                print(f"📂 Loaded ML model {name} from {joblib_file}")
+            except Exception as e:
+                print(f"⚠️ Failed to load {joblib_file}: {e}")
+
+        # refresh unified view
+        self.models = {**self.ml_models, **self.dl_models}
