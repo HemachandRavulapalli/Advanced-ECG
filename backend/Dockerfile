@@ -8,7 +8,7 @@ COPY requirements.deploy.txt ./requirements.deploy.txt
 
 # Install dependencies needed for serving predictions
 RUN python3 -m pip install --upgrade pip && \
-    python3 -m pip install -r requirements.deploy.txt
+    python3 -m pip install -r requirements.txt
 
 # Copy application code
 COPY . .
