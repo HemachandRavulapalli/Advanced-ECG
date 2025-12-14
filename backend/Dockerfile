@@ -1,7 +1,12 @@
 # Dockerfile for Railway deployment
+
 FROM python:3.10-slim
 
+
 WORKDIR /app
+
+# Install system dependencies for OpenCV
+RUN apt-get update && apt-get install -y libgl1
 
 
 # Copy requirements files
