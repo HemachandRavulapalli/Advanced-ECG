@@ -84,7 +84,11 @@ async def predict(file: UploadFile = File(...)):
     ECG Classification with STRICT validation
     Rejects: non-ECG images, flat signals, wrong heart rates
     """
+    print("🚀 Received prediction request!")
+    print(f"📄 File: {file.filename}, Content-Type: {file.content_type}")
+
     if predict_ecg is None:
+        print("❌ Prediction module not available")
         raise HTTPException(status_code=500, detail="Prediction module not available")
 
     # File type validation
@@ -92,6 +96,7 @@ async def predict(file: UploadFile = File(...)):
     file_extension = Path(file.filename).suffix.lower()
 
     if file_extension not in allowed_extensions:
+        print(f"❌ Unsupported file extension: {file_extension}")
         raise HTTPException(
             status_code=400,
             detail=f"❌ Unsupported: {file_extension}. Use ECG PDF/image only",
@@ -106,7 +111,7 @@ async def predict(file: UploadFile = File(...)):
         temp_file.write(content)
         temp_file.close()
 
-        print(f"📄 Processing: {file.filename}")
+        print(f"📄 Processing: {file.filename}, saved to: {temp_file.name}")
 
         # Run prediction
         result = predict_ecg(temp_file.name)
@@ -123,11 +128,7 @@ async def predict(file: UploadFile = File(...)):
 
         # Confidence check from model output
         confidence = result.get("confidence", 0)
-        if confidence < 0.4:
-            raise HTTPException(
-                status_code=400,
-                detail=f"⚠️ Low confidence {confidence:.2f} - unclear ECG signal",
-            )
+        # Allow low confidence
 
         return JSONResponse(
             content={

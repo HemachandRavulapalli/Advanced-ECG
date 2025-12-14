@@ -5,83 +5,96 @@ import joblib
 import tensorflow as tf
 from hybrid_model import HybridEnsemble
 
-# ------------------------
+# --------------------------------------------------
 # Paths
-# ------------------------
-ARTIFACTS_DIR = os.path.join(os.path.dirname(__file__), "../artifacts")
+# --------------------------------------------------
+BASE_DIR = os.path.dirname(__file__)
+ARTIFACTS_DIR = os.path.abspath(os.path.join(BASE_DIR, "../artifacts"))
 
-# ------------------------
-# Loader
-# ------------------------
+# --------------------------------------------------
+# Load ML + DL models
+# --------------------------------------------------
 def load_saved_models():
-    models = {}
+    ml_models = {}
+    dl_models = {}
 
-    # ML models
+    # ---------- ML models ----------
     for name in ["SVM", "RandomForest", "KNN", "XGBoost"]:
         path = os.path.join(ARTIFACTS_DIR, f"{name}.joblib")
         if os.path.exists(path):
-            models[name] = joblib.load(path)
+            ml_models[name] = joblib.load(path)
             print(f"✅ Loaded ML model: {name}")
 
-    # DL models
-    cnn1d_path = os.path.join(ARTIFACTS_DIR, "cnn1d.h5")
+    # ---------- CNN 1D ----------
+    cnn1d_path = os.path.join(ARTIFACTS_DIR, "cnn1d.keras")
     if os.path.exists(cnn1d_path):
-        models["CNN1D"] = tf.keras.models.load_model(cnn1d_path)
+        dl_models["CNN1D"] = tf.keras.models.load_model(cnn1d_path)
         print("✅ Loaded DL model: CNN1D")
 
-    cnn2d_path = os.path.join(ARTIFACTS_DIR, "cnn2d.h5")
+    # ---------- CNN 2D ----------
+    cnn2d_path = os.path.join(ARTIFACTS_DIR, "cnn2d.keras")
     if os.path.exists(cnn2d_path):
-        models["CNN2D"] = tf.keras.models.load_model(cnn2d_path)
+        dl_models["CNN2D"] = tf.keras.models.load_model(cnn2d_path)
         print("✅ Loaded DL model: CNN2D")
 
-    # Hybrid Ensemble
-    hybrid_path = os.path.join(ARTIFACTS_DIR, "hybrid.pkl")
-    if os.path.exists(hybrid_path):
-        hybrid = joblib.load(hybrid_path)
-        print("✅ Loaded Hybrid Ensemble")
-        models["Hybrid"] = hybrid
-
-    return models
+    return ml_models, dl_models
 
 
-# ------------------------
-# Predict (single signal)
-# ------------------------
-def predict_signal(models, signal, classes):
+# --------------------------------------------------
+# Predict single ECG signal
+# --------------------------------------------------
+def predict_signal(signal, classes):
     """
-    Run prediction using Hybrid Ensemble if available,
-    else fall back to CNN1D.
+    Predict class for a single ECG signal using ML + DL hybrid
     """
-    signal = np.array(signal)
+    signal = np.asarray(signal, dtype=np.float32)
 
-    # Ensure correct shape
-    X_ml = signal.reshape(1, -1)   # for ML
-    X_dl = signal.reshape(1, -1, 1)  # for CNN1D
+    if signal.ndim != 1 or signal.shape[0] != 1000:
+        raise ValueError("❌ ECG signal must be 1D with 1000 samples")
 
-    if "Hybrid" in models:
-        hybrid = models["Hybrid"]
-        probs = hybrid.predict_proba(X_ml, X_dl)
-        pred_idx = np.argmax(probs, axis=1)[0]
-        return classes[pred_idx], float(np.max(probs))
+    # Load models
+    ml_models, dl_models = load_saved_models()
 
-    elif "CNN1D" in models:
-        probs = models["CNN1D"].predict(X_dl, verbose=0)
-        pred_idx = np.argmax(probs, axis=1)[0]
-        return classes[pred_idx], float(np.max(probs))
+    if not ml_models and not dl_models:
+        raise RuntimeError("❌ No trained models found in artifacts/")
 
-    else:
-        raise RuntimeError("❌ No trained model available for prediction!")
+    # Prepare inputs
+    X_ml = signal.reshape(1, -1)          # (1, 1000)
+    X_dl_1d = signal.reshape(1, 1000, 1)  # (1, 1000, 1)
+
+    # CNN2D reshape (optional)
+    X_dl_2d = signal.reshape(1, 40, 25, 1) if "CNN2D" in dl_models else None
+
+    # Build hybrid ensemble dynamically
+    hybrid = HybridEnsemble(
+        ml_models=ml_models,
+        dl_models=dl_models,
+        classes=classes,
+        weights={}  # equal weighting for now
+    )
+
+    # Use CNN1D input by default
+    probs = hybrid.predict_proba(X_ml, X_dl_1d)
+
+    pred_idx = int(np.argmax(probs))
+    confidence = float(np.max(probs))
+
+    return classes[pred_idx], confidence
 
 
-# ------------------------
-# Quick Test
-# ------------------------
+# --------------------------------------------------
+# Quick test
+# --------------------------------------------------
 if __name__ == "__main__":
-    models = load_saved_models()
-
-    # Dummy ECG input (1000 samples)
     dummy_signal = np.random.randn(1000)
-    classes = ["NORM", "AFIB", "MI", "STTC", "HYP", "V"]  # replace with real from training
 
-    pred, conf = predict_signal(models, dummy_signal, classes)
-    print(f"🫀 Prediction: {pred} (confidence {conf:.2f})")
+    classes = [
+        "Normal Sinus Rhythm",
+        "Atrial Fibrillation",
+        "Bradycardia",
+        "Tachycardia",
+        "Ventricular Arrhythmias",
+    ]
+
+    label, conf = predict_signal(dummy_signal, classes)
+    print(f"🫀 Prediction: {label} | Confidence: {conf:.3f}")
