@@ -3,8 +3,10 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Copy lightweight deployment requirements for faster installs
-COPY requirements.deploy.txt ./requirements.deploy.txt
+
+# Copy requirements files
+COPY requirements.txt .
+COPY requirements.deploy.txt .
 
 # Install dependencies needed for serving predictions
 RUN python3 -m pip install --upgrade pip && \
