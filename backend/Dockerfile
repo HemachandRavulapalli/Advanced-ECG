@@ -5,8 +5,8 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies for OpenCV
-RUN apt-get update && apt-get install -y libgl1
+# Install system dependencies for OpenCV and PDF/image processing
+RUN apt-get update && apt-get install -y libgl1 libglib2.0-0
 
 
 # Copy requirements files
