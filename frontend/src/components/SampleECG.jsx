@@ -27,9 +27,21 @@ function SampleECG() {
             <span className="font-medium text-text-primary">Sample ECG Image</span>
           </div>
           <div className="bg-border/50 rounded-lg p-8 text-center">
-            <FileImage className="h-24 w-24 text-text-secondary mx-auto mb-4" />
+            <img
+              src="/sample_ecg.jpg"
+              alt="Sample ECG"
+              className="h-40 mx-auto mb-4 border border-border rounded-lg shadow"
+              style={{ objectFit: 'contain' }}
+            />
             <p className="text-text-secondary">6-Lead ECG Report</p>
             <p className="text-sm text-text-secondary mt-2">Sample Kardia Report</p>
+            <a
+              href="/sample_ecg.jpg"
+              download
+              className="btn btn-secondary mt-2"
+            >
+              Download Image
+            </a>
           </div>
         </div>
 
@@ -40,9 +52,20 @@ function SampleECG() {
             <span className="font-medium text-text-primary">Sample ECG PDF</span>
           </div>
           <div className="bg-border/50 rounded-lg p-8 text-center">
-            <FileText className="h-24 w-24 text-text-secondary mx-auto mb-4" />
+            <iframe
+              src="/sample_ecg.pdf"
+              title="Sample ECG PDF"
+              className="w-full h-40 border border-border rounded-lg mb-4"
+            />
             <p className="text-text-secondary">6-Lead ECG Report</p>
             <p className="text-sm text-text-secondary mt-2">Digital PDF Report</p>
+            <a
+              href="/sample_ecg.pdf"
+              download
+              className="btn btn-secondary mt-2"
+            >
+              Download PDF
+            </a>
           </div>
         </div>
       </div>

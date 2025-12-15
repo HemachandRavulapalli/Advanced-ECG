@@ -136,11 +136,13 @@ function Analyze() {
           transition={{ delay: 0.2 }}
         >
           <ECGViewer
-            file={selectedFile}
+            src={URL.createObjectURL(selectedFile)}
             fileType={getFileType(selectedFile)}
+            fileName={selectedFile.name}
+            fileSize={selectedFile.size}
           />
         </motion.div>
-      )}
+      )
 
       {selectedFile && (
         <motion.div
