@@ -142,7 +142,7 @@ function Analyze() {
             fileSize={selectedFile.size}
           />
         </motion.div>
-      )
+      )}
 
       {selectedFile && (
         <motion.div
