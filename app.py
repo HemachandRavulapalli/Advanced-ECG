@@ -1,3 +1,16 @@
+# --- Hugging Face Spaces FastAPI wrapper ---
+import sys
+import os
+
+# Add backend/src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend", "src"))
+
+try:
+    from backend.app import app  # Import the FastAPI app instance
+except Exception as e:
+    print("[HF Wrapper] Failed to import backend.app.app:", e)
+    app = None
+
 import os
 import shutil
 import kagglehub

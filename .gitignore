@@ -73,7 +73,7 @@ frontend/node_modules/
 .env.production
 
 # Sample files (optional - remove if you want to keep)
-sample_ecg.pdf
+# sample_ecg.pdf
 
 # Temporary files
 /tmp/
