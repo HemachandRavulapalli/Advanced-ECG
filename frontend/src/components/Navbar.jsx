@@ -17,6 +17,9 @@ function Navbar() {
             <Link to="/analyze" className="text-text-secondary hover:text-primary transition-colors">
               Analyze
             </Link>
+            <Link to="/logs" className="text-text-secondary hover:text-primary transition-colors">
+              Logs
+            </Link>
           </div>
         </div>
       </div>
