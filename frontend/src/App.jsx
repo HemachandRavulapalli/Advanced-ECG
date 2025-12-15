@@ -4,7 +4,6 @@ import Navbar from './components/Navbar'
 import Home from './pages/Home'
 import Analyze from './pages/Analyze'
 import Results from './pages/Results'
-import Logs from './pages/Logs'
 
 function App() {
   return (
@@ -20,7 +19,6 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/analyze" element={<Analyze />} />
           <Route path="/results" element={<Results />} />
-          <Route path="/logs" element={<Logs />} />
         </Routes>
       </motion.main>
     </div>
