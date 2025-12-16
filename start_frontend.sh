@@ -10,6 +10,6 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
-echo "🌐 Starting React development server on http://localhost:3000"
+echo "🌐 Starting React development server on http://localhost:3002"
 npm run dev
 

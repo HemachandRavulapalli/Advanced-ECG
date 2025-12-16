@@ -1,7 +1,7 @@
 # Quick Deployment Guide 🚀
 
 ## Your GitHub Repository
-✅ **Already connected**: https://github.com/HemachandRavulapalli/ECG-Arrhythmia-Classification
+✅ **Already connected**: https://github.com/HemachandRavulapalli/Advanced-ECG
 
 ## Option 1: Deploy to Vercel (Frontend) + Railway (Backend) - RECOMMENDED
 
