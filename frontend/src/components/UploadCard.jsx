@@ -67,11 +67,10 @@ function UploadCard({ onFileSelect, selectedFile, onRemove }) {
       className="card max-w-2xl mx-auto"
     >
       <div
-        className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 ${
-          isDragOver
+        className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 ${isDragOver
             ? 'border-primary bg-primary/5'
             : 'border-border hover:border-primary/50'
-        } ${selectedFile ? 'bg-primary/5' : ''}`}
+          } ${selectedFile ? 'bg-primary/5' : ''}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -115,7 +114,10 @@ function UploadCard({ onFileSelect, selectedFile, onRemove }) {
               </p>
             </div>
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={(e) => {
+                e.stopPropagation()
+                fileInputRef.current?.click()
+              }}
               className="btn btn-primary"
             >
               Browse Files
