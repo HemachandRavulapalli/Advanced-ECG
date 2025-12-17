@@ -42,6 +42,9 @@ function Analyze() {
 
       const response = await fetch(`${apiUrl}/predict`, {
         method: 'POST',
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
         body: formData,
         signal: controller.signal,
       })
