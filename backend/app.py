@@ -159,4 +159,14 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    
+    # Check for SSL certificates
+    ssl_keyfile = "key.pem"
+    ssl_certfile = "cert.pem"
+    
+    if os.path.exists(ssl_keyfile) and os.path.exists(ssl_certfile):
+        print(f"🔒 Starting in HTTPS mode using {ssl_keyfile} and {ssl_certfile}")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info", ssl_keyfile=ssl_keyfile, ssl_certfile=ssl_certfile)
+    else:
+        print(f"⚠️  Certificates not found. Starting in HTTP mode.")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

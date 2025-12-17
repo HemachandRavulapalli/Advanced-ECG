@@ -18,4 +18,4 @@ pip install -r requirements.txt
 
 # Run the server
 echo "🚀 Starting Backend Server on port 8000..."
-python app.py
+python3 app.py
